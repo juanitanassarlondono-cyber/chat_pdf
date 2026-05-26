@@ -3,117 +3,202 @@ import streamlit as st
 from PIL import Image
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.llms import OpenAI
 from langchain.chains.question_answering import load_qa_chain
 import platform
 
-# App title and presentation
+# ─────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Chat PDF RAG",
-    page_icon="💬",
-    layout="centered"
+    page_title="PDF Analyzer",
+    page_icon="📄",
+    layout="wide",
 )
 
-st.title("Generación Aumentada por Recuperación (RAG) 💬")
-st.write("Versión de Python:", platform.python_version())
+# ─────────────────────────────────────────────
+# ESTILOS
+# ─────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-# Load and display image
-try:
-    image = Image.open("Chat_pdf.png")
-    st.image(image, width=350)
-except Exception as e:
-    st.warning(f"No se pudo cargar la imagen: {e}")
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-# Sidebar information
+.stApp { background-color: #fffde7; color: #333; }
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background-color: #fff9c4 !important;
+    border-right: 1px solid #f9a825;
+}
+
+/* Headers */
+h1 { color: #f57f17 !important; }
+h2, h3 { color: #e65100 !important; }
+
+/* Inputs */
+textarea, input[type="text"] {
+    background-color: #fffff0 !important;
+    border: 1px solid #f9a825 !important;
+    border-radius: 6px !important;
+}
+
+/* Botones */
+.stButton > button {
+    background: #f9a825 !important;
+    color: white !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    width: 100%;
+}
+.stButton > button:hover {
+    background: #f57f17 !important;
+}
+
+/* Cards */
+.header-card {
+    background: #fff8e1;
+    border-left: 5px solid #f9a825;
+    padding: 28px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.section-card {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────
 with st.sidebar:
-    st.subheader("Este agente te ayudará a realizar análisis sobre el PDF cargado")
+    st.markdown("## 📄 PDF Analyzer")
+    st.markdown("Analiza documentos con IA")
+    st.markdown("---")
 
-# Get API key from user
-ke = st.text_input("Ingresa tu Clave de OpenAI", type="password")
+    st.markdown("### Configuración")
+    ke = st.text_input("API Key OpenAI", type="password")
 
-if not ke:
-    st.warning("Por favor ingresa tu clave de API de OpenAI para continuar")
+    if ke:
+        os.environ['OPENAI_API_KEY'] = ke
 
-# PDF uploader
-pdf = st.file_uploader("Carga el archivo PDF", type="pdf")
+# ─────────────────────────────────────────────
+# HEADER (CON IMAGEN)
+# ─────────────────────────────────────────────
+colH1, colH2 = st.columns([3,1])
 
-# Process the PDF if uploaded
+with colH1:
+    st.markdown("""
+    <div class="header-card">
+        <h1 style="margin-bottom:6px;">📄 PDF Analyzer</h1>
+        <p style="margin:0; color:#f57f17;">
+            Explora tus documentos haciendo preguntas sobre su contenido!
+        </p>
+        <p style="margin-top:8px; font-size:0.8rem; color:#9ca3af;">
+    """, unsafe_allow_html=True)
+
+    st.write(f"Versión Python {platform.python_version()}")
+
+with colH2:
+    try:
+        image = Image.open('Chat_pdf.png')
+        st.image(image, use_container_width=True)
+    except:
+        pass
+
+# ─────────────────────────────────────────────
+# CARGA DE PDF
+# ─────────────────────────────────────────────
+
+st.markdown("### 📂 Cargar documento")
+pdf = st.file_uploader("Sube tu PDF", type="pdf")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# PROCESAMIENTO
+# ─────────────────────────────────────────────
 if pdf is not None and ke:
     try:
-        os.environ["OPENAI_API_KEY"] = ke
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown("### ⚙️ Procesamiento")
 
-        # Extract text from PDF
         pdf_reader = PdfReader(pdf)
         text = ""
 
         for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
+            contenido = page.extract_text()
+            if contenido:
+                text += contenido
 
         if not text.strip():
-            st.error("No se pudo extraer texto del PDF. Puede ser un PDF escaneado como imagen.")
+            st.error("No se pudo extraer texto del PDF")
             st.stop()
 
-        st.info(f"Texto extraído: {len(text)} caracteres")
+        st.success(f"{len(text):,} caracteres procesados")
 
-        # Split text into chunks
         text_splitter = CharacterTextSplitter(
             separator="\n",
             chunk_size=500,
-            chunk_overlap=50,
-            length_function=len
+            chunk_overlap=20
         )
 
         chunks = text_splitter.split_text(text)
 
-        if not chunks:
-            st.error("No se pudieron crear fragmentos de texto a partir del PDF.")
-            st.stop()
+        st.info(f"{len(chunks)} fragmentos creados")
 
-        st.success(f"Documento dividido en {len(chunks)} fragmentos")
-
-        # Create embeddings and knowledge base
-        embeddings = OpenAIEmbeddings(api_key=ke)
+        embeddings = OpenAIEmbeddings()
         knowledge_base = FAISS.from_texts(chunks, embeddings)
 
-        # User question interface
-        st.subheader("Escribe qué quieres saber sobre el documento")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # ────────────────
+        # PREGUNTAS
+        # ────────────────
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+
+        st.markdown("### 💬 Pregunta al documento")
 
         user_question = st.text_area(
-            "Pregunta",
-            placeholder="Escribe tu pregunta aquí..."
+            "",
+            placeholder="Ej: ¿Cuál es la conclusión del documento?"
         )
 
-        # Process question when submitted
         if user_question:
-            docs = knowledge_base.similarity_search(user_question)
+            with st.spinner("Pensando..."):
+                docs = knowledge_base.similarity_search(user_question)
 
-            llm = ChatOpenAI(
-                api_key=ke,
-                temperature=0,
-                model="gpt-4o-mini"
-            )
+                llm = OpenAI(
+                    temperature=0,
+                    model_name="gpt-4o"
+                )
 
-            chain = load_qa_chain(llm, chain_type="stuff")
+                chain = load_qa_chain(llm, chain_type="stuff")
 
-            response = chain.run(
-                input_documents=docs,
-                question=user_question
-            )
+                response = chain.run(
+                    input_documents=docs,
+                    question=user_question
+                )
 
-            st.markdown("### Respuesta:")
-            st.markdown(response)
+                st.markdown("### 🧠 Respuesta")
+                st.write(response)
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"Error al procesar el PDF: {str(e)}")
-
-        import traceback
-        st.code(traceback.format_exc())
+        st.error(f"Error: {str(e)}")
 
 elif pdf is not None and not ke:
-    st.warning("Por favor ingresa tu clave de API de OpenAI para continuar")
+    st.warning("Ingresa tu API Key")
 
 else:
-    st.info("Por favor carga un archivo PDF para comenzar")
+    st.info("Sube un PDF para comenzar")
